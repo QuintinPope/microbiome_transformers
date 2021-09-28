@@ -1,9 +1,9 @@
 base_command = "CUDA_VISIBLE_DEVICES=YYY python begin.py --samples TRAIN_DATA --sample_labels TRAIN_LABELS --val_samples VAL_DATA --val_labels VAL_LABELS --test_samples TEST_DATA --test_labels TEST_LABELS --vocab_path VOCAB_PATH --batch_size BATCH_SIZE --load_disc DISC_PATH --layers 5 --epochs EPOCHS --attn_heads 5 --cuda --log_file ~/output/different_dropout/finetune_discrim_absolute_glove_embs_full_train_comparison_dropout_DO_lr_LR_momentum_MOM_insert_RAND_INSERT_delete_RAND_DEL_AP_AUG_RUNN --freeze_opt 0 --weighted_sampler --seq_len 513 --num_labels 2 --mse --sgd --lr LR --momentum MOM --pos_embedding 'POS_EMBS' --dropout DO --random_insert RAND_INSERT --random_delete RAND_DEL --augment_probability AUG &> ~/guille/finetune_online/online_finetune_discrim_absolute_random_vocab_embs_full_train_comparison_dropout_DO_lr_LR_momentum_MOM_insert_RAND_INSERT_delete_RAND_DEL_AP_AUG_RUNN.txt"
 
-momentum = 0.9
-dropout = 0.1
+momentum = 0.95
+dropout = 0.2
 insert = 0.0
-delete = 0.0
+delete = 0.1
 lr = 0.01
 augment_probability = 1.0
 train_data = "~/guille/christine_novaltrain_512_otu.npy"
