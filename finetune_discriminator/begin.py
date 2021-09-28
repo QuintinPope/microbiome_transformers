@@ -3,9 +3,10 @@ import pdb
 from torch.utils.data import DataLoader
 import numpy as np
 import torch
+import electra_pretrain_model
 from pretrain_hf import ELECTRATrainer
 from dataset import ELECTRADataset,create_class_weights,create_weighted_sampler
-from transformers import ElectraConfig,ElectraForSequenceClassification
+from transformers import ElectraConfig,ElectraForSequenceClassification,ElectraForMaskedLM
 from electra_discriminator import ElectraDiscriminator
 from sklearn.model_selection import KFold
 
@@ -67,8 +68,19 @@ def train():
     parser.add_argument("--load_embed", type=str, default=None, help="path to saved state_dict of ELECTRA discriminator embedding layer")
     parser.add_argument("--num_labels", type = int, default = 2, help="number of labels for classification task")
     
-    parser.add_argument("--resume_epoch", type=int, default=0, help="epoch to resume training at")    
+    parser.add_argument("--resume_epoch", type=int, default=0, help="epoch to resume training at")
+    parser.add_argument("--dropout", type=float, default=0.1, help="dropout rate for models")
+    parser.add_argument("--momentum", type=float, default=0.9, help="momentum for SGD")
+
+
+    parser.add_argument("--random_delete", type=float, default=0.0, help="fraction of input tokens to delete (optional)")
+    parser.add_argument("--random_insert", type=float, default=0.0, help="fraction of input to add as random insertions (optional)")
+    parser.add_argument("--augment_probability", type=float, default=1.0, help="probability of augmenting each datapoint with insertions/deletions (optional; default is to augment all)")
+
+
+    parser.add_argument("--pos_embedding", type=str, default='absolute', help="type of positional embedding to use with the model")    
     args = parser.parse_args()
+    print("Loading checkpoint:", args.load_disc)
 
     samples = np.load(args.samples)
     labels = np.load(args.sample_labels)
@@ -76,7 +88,7 @@ def train():
 
     def train_constructor(train_samples,test_samples,train_labels,test_labels,log_file,val_samples=None,val_labels=None):
             print("Loading Train Dataset")
-            train_dataset = ELECTRADataset(train_samples, args.vocab_path,train_labels)
+            train_dataset = ELECTRADataset(train_samples, args.vocab_path,train_labels, random_delete=args.random_delete, random_insert=args.random_insert, augment_probability=args.augment_probability)
 
             print("Loading Test Dataset")
             test_dataset = ELECTRADataset(test_samples, args.vocab_path,test_labels)
@@ -104,9 +116,20 @@ def train():
 
             vocab_len = train_dataset.vocab_len()
         
-
-            electra_config = ElectraConfig(vocab_size=vocab_len,embedding_size=args.hidden,hidden_size=args.hidden*2,num_hidden_layers=args.layers,num_attention_heads=args.attn_heads,intermediate_size=4*args.hidden,max_position_embeddings=args.seq_len,num_labels=args.num_labels)
-            electra = ElectraDiscriminator(electra_config,torch.from_numpy(train_dataset.embeddings),args.load_disc,args.load_embed)
+            if str.lower(args.pos_embedding) in ['absolute', 'relative_key', 'relative_key_query']:
+                pos_embedding_type_str = str.lower(args.pos_embedding)
+            else:
+                pos_embedding_type_str = 'none'
+            electra_config = ElectraConfig(vocab_size=vocab_len,embedding_size=args.hidden,hidden_size=args.hidden*2,num_hidden_layers=args.layers,num_attention_heads=args.attn_heads,intermediate_size=4*args.hidden,max_position_embeddings=args.seq_len,num_labels=args.num_labels, position_embedding_type=pos_embedding_type_str,hidden_dropout_prob=args.dropout, attention_probs_dropout_prob=args.dropout)
+            if '_disc/pytorch_model' in args.load_disc:
+                electra = ElectraDiscriminator(electra_config, embeddings=torch.from_numpy(train_dataset.embeddings), discriminator=args.load_disc, embed_layer=args.load_embed, with_cuda=args.with_cuda, pos_embedding=str.lower(args.pos_embedding))
+            else:
+                electra = ElectraDiscriminator(electra_config, embeddings=torch.from_numpy(train_dataset.embeddings), discriminator=None, embed_layer=args.load_embed, with_cuda=args.with_cuda, pos_embedding=str.lower(args.pos_embedding))
+            if args.load_disc != 'none' and args.load_disc and not '_disc/pytorch_model' in args.load_disc:
+                print("Loading non-disc pretrained model")
+                m = torch.load(args.load_disc)
+                electra.discriminator.electra = m.electra.generator.electra
+            print("ELECTRA embeddings pos embeddings:", electra.discriminator.electra.embeddings.position_embedding_type)
             print(electra)
             #pdb.set_trace()
             print("Creating Electra Trainer")
@@ -114,12 +137,16 @@ def train():
                 trainer = ELECTRATrainer(electra, vocab_len, train_dataloader=train_data_loader,train_orig_dataloader = train_orig_dataloader, test_dataloader=test_data_loader,val_dataloader=val_data_loader,
                                     lr=args.lr, betas=(args.adam_beta1, args.adam_beta2), weight_decay=args.adam_weight_decay,
                                     with_cuda=args.with_cuda, cuda_devices=args.cuda_devices, log_freq=args.log_freq,log_file=log_file,
-                                    freeze_embed=args.freeze_opt,freeze_encoders=args.freeze_encoders,loss_func=args.loss_func,optim=args.optim,hidden_size=args.hidden*2)
+                                    freeze_embed=args.freeze_opt,freeze_encoders=args.freeze_encoders,loss_func=args.loss_func,optim=args.optim,
+                                    hidden_size=args.hidden*2,pos_embedding=str.lower(args.pos_embedding), momentum=args.momentum, 
+                                    random_delete=args.random_delete, random_insert=args.random_insert)
             else:
                 trainer = ELECTRATrainer(electra, vocab_len, train_dataloader=train_data_loader,train_orig_dataloader = train_orig_dataloader, test_dataloader=test_data_loader,val_dataloader=val_data_loader,
                                 lr=args.lr, betas=(args.adam_beta1, args.adam_beta2), weight_decay=args.adam_weight_decay,
                                 with_cuda=args.with_cuda, cuda_devices=args.cuda_devices, log_freq=args.log_freq,log_file=log_file,
-                                freeze_embed=args.freeze_opt,freeze_encoders=args.freeze_encoders,class_weights=torch.tensor(class_weights,dtype=torch.float),loss_func=args.loss_func,optim=args.optim,hidden_size=args.hidden*2)
+                                freeze_embed=args.freeze_opt,freeze_encoders=args.freeze_encoders,class_weights=torch.tensor(class_weights,dtype=torch.float),
+                                loss_func=args.loss_func,optim=args.optim,hidden_size=args.hidden*2, pos_embedding=str.lower(args.pos_embedding),
+                                momentum=args.momentum, random_delete=args.random_delete, random_insert=args.random_insert)
 
             print("Training Start")
             for epoch in range(args.resume_epoch,args.epochs+args.resume_epoch):

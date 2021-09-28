@@ -70,12 +70,16 @@ class ELECTRADataset(Dataset):
         frequencies = sample[:,self.frequency_index]
         mask_locations = np.full(sample.shape[0],False)
         masked = False
-        for i in range(sample.shape[0]):
+        applied_masks = 0
+        rng = np.random.default_rng()
+        rands = rng.permutation(sample.shape[0]).tolist()
+        for i in range(sample.shape[0]):# rands:
             #pdb.set_trace()
             if sample[i,self.frequency_index] > 0:
                 prob = random.random()
-                if prob < 0.15 and i > 0 and sample[i,self.frequency_index] > 0:
-                    prob /= 0.15
+                if applied_masks < 500 and prob < 0.3 and i > 0 and sample[i,self.frequency_index] > 0:
+                    prob /= 0.3
+                    applied_masks += 1
 
                     # 80% randomly change token to mask token
                     if prob < 0.8  and masked == False:

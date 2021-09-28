@@ -15,7 +15,9 @@ class ElectraDiscriminator(nn.Module):
     def forward(self,data,attention_mask,labels):
         #pdb.set_trace()
         data = self.embed_layer(data)
-        loss,scores = self.discriminator(attention_mask=attention_mask,inputs_embeds=data,labels=labels)
+        output = self.discriminator(attention_mask=attention_mask,inputs_embeds=data,labels=labels)
+        loss = output.loss
+        scores = output.logits
         scores = self.sigmoid(scores)
         return loss, scores
 
@@ -41,6 +43,8 @@ class ElectraGenerator(nn.Module):
     def forward(self,data,attention_mask,labels):
         #pdb.set_trace()
         data = self.embed_layer(data)
-        loss,scores = self.generator(attention_mask=attention_mask,inputs_embeds=data,labels=labels)
+        output = self.generator(attention_mask=attention_mask,inputs_embeds=data,labels=labels)
+        loss = output.loss
+        scores = output.logits
         scores = self.softmax(scores)
         return loss, scores

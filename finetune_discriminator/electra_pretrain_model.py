@@ -1,36 +1,35 @@
-from transformers import ElectraConfig,ElectraForSequenceClassification
+from transformers import ElectraConfig,ElectraForMaskedLM
 import torch.nn as nn
 import torch
 import pdb
-import torch_rbf as rbf
 
-class ElectraDiscriminator(nn.Module):
+class ElectraGenerator(nn.Module):
 
-    def __init__(self,config:ElectraConfig,embeddings,discriminator = None, embed_layer = None, with_cuda = True, pos_embedding = 'absolute'):
+    def __init__(self,config: ElectraConfig,embeddings,generator=None,embed_layer=None, with_cuda = True, pos_embedding = 'emb_dim'):
         super().__init__()
-        self.embed_layer = nn.Embedding(num_embeddings=config.vocab_size,embedding_dim=config.embedding_size,padding_idx = config.vocab_size-1)
+        self.embed_layer = nn.Embedding(num_embeddings=config.vocab_size,embedding_dim=config.embedding_size, padding_idx= config.vocab_size-1)
         if embed_layer:
             self.embed_layer.load_state_dict(torch.load(embed_layer))
         else:
-            self.embed_layer.weight = nn.Parameter(embeddings)
-        if discriminator:
-            self.discriminator = ElectraForSequenceClassification.from_pretrained(discriminator,config=config)
+            self.embed_layer.weight = nn.Parameter(embeddings)        
+        if generator:
+            self.generator = ElectraForMaskedLM.from_pretrained(generator,config=config)
         else:
-            self.discriminator = ElectraForSequenceClassification(config)
-        self.softmax = nn.Softmax(1)
+            self.generator = ElectraForMaskedLM(config)
+        self.softmax = nn.Softmax(dim=2)
         self.sin_emb_layer = PositionalEmbedding(demb=config.embedding_size)
         self.demb = config.embedding_size
         cuda_condition = torch.cuda.is_available() and with_cuda
         self.device = torch.device("cuda:0" if cuda_condition else "cpu")
         self.pos_embedding = pos_embedding
 
-        basis_func = rbf.gaussian
-        self.rbf_layer = rbf.RBF(1, self.demb, basis_func)
-        self.bin_pos_embed_layer = nn.Embedding(num_embeddings=30,embedding_dim=config.embedding_size)
+        #basis_func = rbf.gaussian
+        #self.rbf_layer = rbf.RBF(1, self.demb, basis_func)
 
         print("ELECTRA POS embedding:", pos_embedding)
 
-    def forward(self,data,attention_mask,labels, pos_embedding, frequencies):
+
+    def forward(self,data,attention_mask, labels, frequencies):
         #pdb.set_trace()
         data = self.embed_layer(data)
         bsz = data.size()[0]
@@ -47,12 +46,12 @@ class ElectraDiscriminator(nn.Module):
                 for i in range(bsz):
                     pos_embedding_vals = torch.reshape(self.sin_emb_layer(frequencies[i], 1), (input_len, self.demb))
                     data[i] += pos_embedding_vals
-            elif self.pos_embedding == 'rbf':
-                max_frequencies = torch.reshape(torch.max(frequencies, dim=1).values, (-1, 1))
-                frequencies / max_frequencies
-                for i in range(bsz):
-                    pos_embedding_vals = self.rbf_layer(frequencies[i].view(-1, 1))
-                    data[i] += pos_embedding_vals
+            #elif self.pos_embedding == 'rbf':
+            #    max_frequencies = torch.reshape(torch.max(frequencies, dim=1).values, (-1, 1))
+            #    frequencies / max_frequencies
+            #    for i in range(bsz):
+            #        pos_embedding_vals = self.rbf_layer(frequencies[i].view(-1, 1))
+            #        data[i] += pos_embedding_vals
             elif self.pos_embedding == 'rbf_bin':
                 pass
             elif self.pos_embedding == 'emb_dim':
@@ -60,18 +59,13 @@ class ElectraDiscriminator(nn.Module):
             elif self.pos_embedding == 'emb_dim_raw':
                 max_frequencies = torch.reshape(torch.max(frequencies, dim=1).values, (-1, 1))
                 data[:, :, 0] = frequencies / max_frequencies
-            elif self.pos_embedding == 'bin_emb_dim':
-                data[:, :, 0] = torch.round(torch.log(torch.abs(frequencies) + 1))
-            elif self.pos_embedding == 'bin_absolute':
-                bin_frequencies = torch.round(torch.log(torch.abs(frequencies) + 1)).long()
-                data = data + self.bin_pos_embed_layer(bin_frequencies)
             elif self.pos_embedding == 'none':
                 pass
-        output = self.discriminator(attention_mask=attention_mask,inputs_embeds=data,labels=labels)
-        scores = self.softmax(output['logits'])
-        loss = output['loss']
-        return loss, scores
-
+        output = self.generator(attention_mask=attention_mask,inputs_embeds=data,labels=labels)
+        loss = output.loss
+        scores = output.logits
+        scores = nn.functional.sigmoid(scores)
+        return loss, scores, output.logits
 
 
 
@@ -95,4 +89,7 @@ class PositionalEmbedding(nn.Module):
             return pos_emb[:, None, :].expand(-1, bsz, -1)
         else:
             return pos_emb[:, None, :]
+
+
+
 

@@ -21,6 +21,8 @@ class ElectraGenerator(nn.Module):
     def forward(self,data,attention_mask,labels):
         #pdb.set_trace()
         data = self.embed_layer(data)
-        loss,scores = self.generator(attention_mask=attention_mask,inputs_embeds=data,labels=labels)
-        scores = self.softmax(scores)
+        output = self.generator(attention_mask=attention_mask,inputs_embeds=data,labels=labels)
+        loss = output.loss
+        scores = output.logits
+        scores = nn.functional.softmax(scores)
         return loss, scores

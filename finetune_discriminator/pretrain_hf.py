@@ -7,6 +7,7 @@ from sklearn import metrics
 
 
 import os
+import pickle
 from electra_discriminator import ElectraDiscriminator
 from transformers import ElectraConfig,ElectraForSequenceClassification
 import tqdm
@@ -21,7 +22,8 @@ class ELECTRATrainer:
                  train_dataloader: DataLoader, train_orig_dataloader: DataLoader, test_dataloader: DataLoader = None,val_dataloader: DataLoader = None,
                  lr: float = 1e-4, betas=(0.9, 0.999), weight_decay: float = 0.01, warmup_steps=2000,
                  with_cuda: bool = True, cuda_devices=None, log_freq: int = 100, log_file=None,
-                 freeze_embed=0,freeze_encoders=0,class_weights=None,loss_func='mse',optim='sgd',hidden_size=None):
+                 freeze_embed=0,freeze_encoders=0,class_weights=None,loss_func='mse',optim='sgd',hidden_size=None, 
+                 pos_embedding="absolute", momentum=0.9, random_delete=0.0, random_insert=0.0):
         """
         :param electra: ELECTRA model which you want to train
         :param vocab_size: total word vocab size
@@ -34,6 +36,7 @@ class ELECTRATrainer:
         :param log_freq: logging frequency of the batch iteration
         """
         self.optim = optim
+        self.pos_embedding = pos_embedding
         self.loss_func = loss_func
         self.softmax = torch.nn.Softmax()
         # Setup cuda device for ELECTRA training, argument -c, --cuda should be true
@@ -42,10 +45,13 @@ class ELECTRATrainer:
         self.hardware = "cuda" if cuda_condition else "cpu"
 
         self.freeze_embed = freeze_embed
+        self.random_delete = random_delete
+        self.random_insert = random_insert
 
         self.electra = electra
         self.electra = self.electra.to(self.device)
         self.electra = self.electra.float()
+        self.species_freqs = {}
         #pdb.set_trace()
         #for cross entropy loss
         if self.loss_func == 'ce':
@@ -86,7 +92,7 @@ class ELECTRATrainer:
                 self.electra.embed_layer.weight.requires_grad = False
         elif freeze_embed == 2:
             self.freeze_embed_idx = torch.arange(26726,dtype=torch.long).to(self.device)
-        else:
+        elif freeze_embed != 0:
             raise Exception('Invalid Freeze option, valid options are 1 or 2')
 
         if freeze_encoders > 0 and freeze_encoders <= num_encoder_layers:
@@ -108,7 +114,7 @@ class ELECTRATrainer:
             self.scheduler = get_constant_schedule_with_warmup(self.optim,warmup_steps,)               
         elif self.optim == 'sgd':
             print("USING SGD OPTIMIZER, LR: {}".format(lr))
-            self.optim = SGD([param for param in self.electra.parameters() if param.requires_grad == True],lr=lr,momentum=0.9)
+            self.optim = SGD([param for param in self.electra.parameters() if param.requires_grad == True],lr=lr,momentum=momentum)
 
         self.log_freq = log_freq
 
@@ -203,6 +209,13 @@ class ELECTRATrainer:
             all_labels.append(data["electra_label"])
             # 0. batch_data will be sent into the device(GPU or cpu)
             data = {key: value.to(self.device) for key, value in data.items()}
+            if self.log_file == 'freqs.txt':
+                for s in range(len(data["species_frequencies"])):
+                    for w in range(len(data["species_frequencies"][s])):
+                        if data["electra_input"][s][w] in self.species_freqs:
+                            self.species_freqs[data["electra_input"][s][w]].append(data["species_frequencies"][s][w])
+                        else:
+                            self.species_freqs[data["electra_input"][s][w]] = []
 
             #create attention mask
             #pdb.set_trace()
@@ -212,7 +225,7 @@ class ELECTRATrainer:
 
             
             # 1. forward the next_sentence_prediction and masked_lm model
-            unweighted_loss,scores = self.electra.forward(data["electra_input"],mask,data["electra_label"])            
+            unweighted_loss,scores = self.electra.forward(data["electra_input"],mask,data["electra_label"], pos_embedding=self.pos_embedding, frequencies=data["species_frequencies"])
             # 3. backward and optimization only in train
             #pdb.set_trace()
             #for mse loss
@@ -280,6 +293,10 @@ class ELECTRATrainer:
             del scores
             del predictions
             del positive_inds
+        if self.log_file == 'freqs.txt' and i > 1:
+            with open('freq_dict.txt', 'w') as g:
+                print(self.species_freqs, file=g)
+            return -1
 
         auc_score = 0
         aupr_score = 0

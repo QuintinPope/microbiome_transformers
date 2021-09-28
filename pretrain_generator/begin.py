@@ -37,12 +37,18 @@ def train():
 
     parser.add_argument("--lr", type=float, default=1e-2, help="learning rate of adam")
     parser.add_argument("--adam_weight_decay", type=float, default=0.01, help="weight_decay of adam")
+    parser.add_argument("--momentum", type=float, default=0.9, help="momentum of SGD")
     parser.add_argument("--adam_beta1", type=float, default=0.9, help="adam first beta value")
     parser.add_argument("--adam_beta2", type=float, default=0.999, help="adam first beta value")
 
     parser.add_argument("--load_gen", type=str, default=None, help="path to saved state_dict of Masked LM model")
     parser.add_argument("--load_g_embed", type=str, default=None, help="path to saved state dict for generator embeddings")
     parser.add_argument("--resume_epoch", type=int, default=0, help="epoch to resume training at")
+
+
+
+    parser.add_argument("--dropout", type=float, default=0.1, help="dropout rate for models")
+    parser.add_argument("--grad_acc_steps", type=int, default=1, help="number of gradient accumulation steps")
 
     args = parser.parse_args()
 
@@ -54,14 +60,14 @@ def train():
     test_dataset = ELECTRADataset(args.test_dataset, args.vocab_path) if args.test_dataset is not None else None
 
     print("Creating Dataloader")
-    train_data_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers,drop_last=True)
-    test_data_loader = DataLoader(test_dataset, batch_size=1, num_workers=args.num_workers,drop_last=True) \
+    train_data_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers,drop_last=True, shuffle=True)
+    test_data_loader = DataLoader(test_dataset, batch_size=2, num_workers=args.num_workers,drop_last=True, shuffle=True) \
         if test_dataset is not None else None
 
     vocab_len = train_dataset.vocab_len()
   
 
-    electra_config = ElectraConfig(vocab_size=vocab_len,embedding_size=args.hidden,hidden_size=2*args.hidden,num_hidden_layers=args.layers,num_attention_heads=args.attn_heads,intermediate_size=4*args.hidden,max_position_embeddings=args.seq_len,)
+    electra_config = ElectraConfig(vocab_size=vocab_len,embedding_size=args.hidden,hidden_size=2*args.hidden,num_hidden_layers=args.layers,num_attention_heads=args.attn_heads,intermediate_size=4*args.hidden,max_position_embeddings=args.seq_len,hidden_dropout_prob=args.dropout,)
     electra = ElectraGenerator(electra_config,torch.from_numpy(train_dataset.embeddings),args.load_gen,args.load_g_embed)
     print("Creating Electra Trainer")
 
@@ -69,7 +75,8 @@ def train():
     trainer = ELECTRATrainer(electra, vocab_len, train_dataloader=train_data_loader, test_dataloader=test_data_loader,
                           lr=args.lr, betas=(args.adam_beta1, args.adam_beta2), weight_decay=args.adam_weight_decay,
                           with_cuda=args.with_cuda, cuda_devices=args.cuda_devices, log_freq=args.log_freq,log_file=args.log_file,
-                          append=append)
+                          append=append, momentum=args.momentum, grad_acc_steps=args.grad_acc_steps)
+
 
     print("Training Start")
     for epoch in range(args.resume_epoch,args.resume_epoch+args.epochs):

@@ -15,7 +15,7 @@ class ELECTRATrainer:
     """
 
     def __init__(self, electra_gen: ElectraGenerator, electra_disc: ElectraDiscriminator, vocab_size: int,
-                 train_dataloader: DataLoader, test_dataloader: DataLoader = None,
+                 train_dataloader: DataLoader, test_dataloader: DataLoader = None, 
                  lr: float = 1e-4, betas=(0.9, 0.999), weight_decay: float = 0.01, warmup_steps=10000,
                  with_cuda: bool = True, cuda_devices=None, log_freq: int = 100, d_log_file = None,append=False,freeze_embed = False):
         """
@@ -54,6 +54,7 @@ class ELECTRATrainer:
         # Setting the train and test data loader
         self.train_data = train_dataloader
         self.test_data = test_dataloader
+
 
         # Setting the Adam optimizer with hyper-param
         #self.optim = Adam(self.model.parameters(), lr=lr, betas=betas, weight_decay=weight_decay)

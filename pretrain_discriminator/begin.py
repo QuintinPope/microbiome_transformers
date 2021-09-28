@@ -62,9 +62,10 @@ def train():
     print("Loading Test Dataset", args.test_dataset)
     test_dataset = ELECTRADataset(args.test_dataset, args.vocab_path) if args.test_dataset is not None else None
 
+
     print("Creating Dataloader")
     train_data_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers,drop_last=True)
-    test_data_loader = DataLoader(test_dataset, batch_size=1, num_workers=args.num_workers,drop_last=True) \
+    test_data_loader = DataLoader(test_dataset, batch_size=2, num_workers=args.num_workers,drop_last=True) \
         if test_dataset is not None else None
 
     vocab_len = train_dataset.vocab_len()
@@ -72,7 +73,8 @@ def train():
 
     electra_config = ElectraConfig(vocab_size=vocab_len,embedding_size=args.hidden,hidden_size=2*args.hidden,num_hidden_layers=args.layers,num_attention_heads=args.attn_heads,intermediate_size=4*args.hidden,max_position_embeddings=args.seq_len)
     electra_gen_config = ElectraConfig(vocab_size=vocab_len,embedding_size=args.gen_hidden,hidden_size=2*args.gen_hidden,num_hidden_layers=args.gen_layers,num_attention_heads=args.gen_attn_heads,intermediate_size=4*args.gen_hidden,max_position_embeddings=args.gen_seq_len)    
-    electra_gen = ElectraGenerator(electra_gen_config,torch.from_numpy(train_dataset.embeddings),args.load_gen[0],args.load_g_embed[0])
+    #electra_gen = ElectraGenerator(electra_gen_config,torch.from_numpy(train_dataset.embeddings),args.load_gen[0],args.load_g_embed[0])
+    electra_gen = torch.load(args.load_gen[0]).electra
     electra_disc = ElectraDiscriminator(electra_config,torch.from_numpy(train_dataset.embeddings))
     print("Creating Electra Trainer")
     append = True if args.resume_epoch > 0 else False
@@ -84,7 +86,8 @@ def train():
 
 
     for i in range(len(args.load_gen)):
-        new_gen = ElectraGenerator(electra_gen_config,torch.from_numpy(train_dataset.embeddings),args.load_gen[i],args.load_g_embed[i])
+        #new_gen = ElectraGenerator(electra_gen_config,torch.from_numpy(train_dataset.embeddings),args.load_gen[i],args.load_g_embed[i])
+        new_gen = torch.load(args.load_gen[i]).electra
         trainer.swap_gen(new_gen,args.with_cuda,args.cuda_devices)
         trainer.save(0,args.output_path)
         for j in range(args.epochs):
